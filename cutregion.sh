@@ -16,12 +16,18 @@ OGRFILE=$2
 LAYER=$3
 OUTFILE=$4
 
+getbbox() {
+    OGRFILE=$1
+    LAYER=$2
+    ogrinfo -dialect sqlite -sql "select mbrminx(geometry), mbrmaxy(geometry), 
+    mbrmaxx(geometry), mbrminy(geometry) from ${LAYER}" ${OGRFILE} | \
+     grep \=  | sed 's/(geometry) (Real)//g;s/ //g'
+}
+
 # Use ogrinfo to convert underlying dataset to sqlite in-memory, 
 #   then query that dataset for bounding box, converting to shell variable
 #   assignments that are evaled.
-eval $(ogrinfo -dialect sqlite -sql "select mbrminx(geometry), mbrmaxy(geometry), 
-    mbrmaxx(geometry), mbrminy(geometry) from ${LAYER}" ${OGRFILE} | \
-     grep \=  | sed 's/(geometry) (Real)//g;s/ //g')
+eval $(getbbox ${OGRFILE} ${LAYER})
 
 # Put together mbr as a string for gdal_translate
 bbox="$mbrminx $mbrmaxy $mbrmaxx $mbrminy"
