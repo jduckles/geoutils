@@ -1,18 +1,26 @@
 #!/bin/bash
 # Jonah Duckles (c) 2014
 
-# This will not run cleanly as a script right at the moment.
-# Mosaic all FNF PALSAR images into one virtual mosiac'd image.
+# This is an exploratory analysis of JAXA's PALSAR derived 
+#  Forest Not Forest map with MODIS MCD12C12 global landcover 
+#  product using GRASS GIS.
 
+# This will not run cleanly as a script right at the moment.
+
+# Inital analysis is for 2008, but lets make it easy to run again for other years.
 YEAR=2008
 YEAR_short=${YEAR:2:4}
 
 
+# Mosaic all FNF PALSAR images into one virtual mosiac'd image.
+#  from: http://www.eorc.jaxa.jp/ALOS/en/palsar_fnf/fnf_index.htm
+
 #### Prep JAXA FNF Data set
+# Extract from tgz files
 for i in *.tar.gz; do tar -xzvf $i; done
 # Create a vrt of all tiles
 gdalbuildvrt MOSAIC_${YEAR_short}.vrt *${YEAR_short}_C
-# Build real mosaic'd tif from vrt
+# Build a mosaic'd tif from vrt
 gdal_translate -co COMPRESS=LZW MOSAIC_${YEAR_short}.vrt FNF_${YEAR_short}.tif
 # Warp FNF map to MCD12C1 projection
 gdalwarp -t_srs modis.prj FNF_${YEAR}.tif FNF_${YEAR}_warped.tif
