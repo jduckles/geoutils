@@ -26,7 +26,7 @@ for YEAR in ${YEARS}; do
             gdalbuildvrt VCF_global_${YEAR}.vrt *_TRE.${YEAR}*.tif;
     fi
     #gdal_translate -co COMPRESS=LZW -projwin $bbox VCF_global_${YEAR}.vrt VCF_congo_${YEAR}.tif
-    gdal_translate -co COMPRESS=LZW -projwin $bbox VCF_global_${YEAR}.vrt VCF_congo_${YEAR}.tif
+    gdal_translate -co COMPRESS=LZW VCF_global_${YEAR}.vrt VCF_global_${YEAR}.tif
 
 done
 
