@@ -26,6 +26,9 @@ for i in *.tif; do r.external $i out=${i/.tif/}; done
 fnf2modis() { 
     input=$1
     output=$2
+    if [ -f /data/scratch/FNF_MODIS/output/${output}.tif ]; then
+        echo "Skipping, we already processed that one."
+    else
     g.region rast=${input}
 # Reclass FNF to binary map
     r.reclass input=${input} output=${input}_rc << EOF
@@ -33,11 +36,12 @@ fnf2modis() {
 2 3 = 0
 0 = NULL
 EOF
-    r.mapcalc ${input}_tmp="if(${input}_rc == 1, float(1), float(0))"
-    g.region nsres=463.31271653 ewres=463.31271653
-    r.resamp.stats --o input=${input}_tmp output=${output} method=average
-    g.remove rast=${input}_rc,${input}_tmp
-    r.out.gdal create=COMPRESS=LZW input=${output} output=/data/scratch/FNF_MODIS/output/${output}.tif
+        r.mapcalc ${input}_tmp="if(${input}_rc == 1, float(1), float(0))"
+        g.region nsres=463.31271653 ewres=463.31271653
+        r.resamp.stats --o input=${input}_tmp output=${output} method=average
+        g.remove rast=${input}_rc,${input}_tmp
+        r.out.gdal create=COMPRESS=LZW input=${output} output=/data/scratch/FNF_MODIS/output/${output}.tif
+    fi
 }
 
 
