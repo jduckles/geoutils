@@ -1,3 +1,4 @@
+#!/bin/bash
 ### Convert JAXA FNF to MODIS 500m grid
 ### Copyright 2014 Jonah Duckles (jduckles@ou.edu)
 ### 
@@ -6,7 +7,7 @@
 ###   resample the fine resolution (FNF) maps and compute a percentage
 ###   forest cover at 500m.
 ########################################################################
-
+set -x
 
 # Find directory we're running script from 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -15,7 +16,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # A set of reference tiles from MOD09A1 to extract tile extents from
 MODIS_TILES=/data/ddn/jduckles/modis_tiles
-PALSAR_SOURCE=/data/ddn/PALSAR/PALSAR_2014/
+PALSAR_SOURCE=/data/ddn/PALSAR/PALSAR_2014/Rawdata_new
 OUTPUT=/data/scratch/jduckles/PALSAR
 
 # Find extent of raster tile:
@@ -31,6 +32,7 @@ else
     echo "Done"
 fi
 
+
 # Uncompress and stage tiles in a scratch directory
 stage_PALSAR() {
     INPUT_DIR=$1
@@ -42,6 +44,27 @@ stage_PALSAR() {
     echo "Finished staging tiles"
 }
 
+mosaic_year() {
+    YEAR=$1
+    # Combine all PALSAR data into vrt logical mosaic
+    echo "Building vrt from all PALSAR data"
+    if [ -f ${OUTPUT}/FNF_${YEAR}.vrt ]; then
+        echo "Found ${OUTPUT}/FNF_${YEAR}.vrt, skipping"
+    else
+        gdalbuildvrt ${OUTPUT}/FNF_${YEAR}.vrt ${OUTPUT}/${YEAR}/*_C
+    fi
+    # Warp the vrt
+    if [ -f  ${OUTPUT}/FNF_${YEAR}_warp.vrt ]; then
+        echo "Found  ${OUTPUT}/FNF_${YEAR}_warp.vrt, skipping."
+    else 
+        gdalwarp -t_srs ~/modis_sinusoidal.prj -of VRT ${OUTPUT}/FNF_${YEAR}.vrt ${OUTPUT}/FNF_${YEAR}_warp.vrt
+    fi
+    # Loop over all MODIS tiles and extract from VRT mosiaic
+    export -f tile_extract
+    cat ${DIR}/../lib/tilebounds.csv | parallel --bar -j 15 --env tile_extract --colsep " " "tile_extract {1} {2} {3} {4} {5} ${OUTPUT}/FNF_${YEAR}_warp.vrt ${OUTPUT}/FNF_MODIS_{1}_${YEAR}_50m.tif"
+
+}
+
 stage_years() {
     YEARS=$1
     for year in ${YEARS}; do
@@ -50,7 +73,7 @@ stage_years() {
         else
             mkdir -p ${OUTPUT}/${year}
             echo "Staging tiles for ${year}"
-            stage_PALSAR ${PALSAR_SOURCE}/${year} ${OUTPUT}/${year}
+            stage_PALSAR ${PALSAR_SOURCE}/${year}/FNF ${OUTPUT}/${year}
         fi
         echo "Mosaicing to VRT file"
         mosaic_year ${year}
@@ -59,23 +82,11 @@ stage_years() {
 
 stage_years {2007..2010}
 
-mosaic_year() {
-    YEAR=$1
-    # Combine all PALSAR data into vrt logical mosaic
-    echo "Building vrt from all PALSAR data"
-    gdalbuildvrt ${OUTPUT}/FNF_${YEAR}.vrt ${OUTPUT}${YEAR}/*_C
-    # Warp the vrt
-    gdalwarp -t_srs ~/modis_sinusoidal.prj -of VRT FNF_${YEAR}.vrt FNF_${YEAR}_warp.vrt
-
-    # Loop over all MODIS tiles and extract from VRT mosiaic
-    cat ${DIR}/../lib/tilebounds.csv | parallel --bar -j 15 --env tile_extract --colsep " " "tile_extract {1} {2} {3} {4} {5} ${OUTPUT}/FNF_${YEAR}_warp.vrt FNF_MODIS_{1}_50m.tif"
-
-}
 
 ## Enable GRASS Session
 
 # Enter GRASS location with MODIS sinusoidal projection
-for i in *.tif; do r.external $i out=${i/.tif/}; done
+for rast in ${OUTPUT}/*.tif; do r.external $rast out=${rast/.tif/}; done
 
 fnf2modis() { 
     input=$1
@@ -91,10 +102,11 @@ EOF
     g.region nsres=463.31271653 ewres=463.31271653
     r.resamp.stats --o input=${input}_tmp output=${output} method=average
     g.remove rast=${input}_rc,${input}_tmp
-    r.out.gdal create=COMPRESS=LZW input=${output} output=/data/scratch/FNF_MODIS/output/${output}.tif
+    r.out.gdal create=COMPRESS=LZW input=${input} output=/data/scratch/FNF_MODIS/output/${input}.tif
 }
 
-
-$GISBASE/etc/clean_temp
+for rast in $(g.mlist rast pattern=FNF_MODIS_*_50m); do
+    fnf2modis ${rast};
+done
 
 
