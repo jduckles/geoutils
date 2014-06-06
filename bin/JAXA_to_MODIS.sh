@@ -7,7 +7,7 @@
 ###   resample the fine resolution (FNF) maps and compute a percentage
 ###   forest cover at 500m.
 ########################################################################
-set -x
+#set -x
 
 # Find directory we're running script from 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -60,8 +60,13 @@ mosaic_year() {
         gdalwarp -t_srs ~/modis_sinusoidal.prj -of VRT ${OUTPUT}/FNF_${YEAR}.vrt ${OUTPUT}/FNF_${YEAR}_warp.vrt
     fi
     # Loop over all MODIS tiles and extract from VRT mosiaic
+    numtiles=$(ls ${OUTPUT}/*${YEAR}.tif)
+    if [ $numtiles -gte 280 ]; then
+        echo "We already extracted all the tiles";
+    else    
     export -f tile_extract
     cat ${DIR}/../lib/tilebounds.csv | parallel --bar -j 15 --env tile_extract --colsep " " "tile_extract {1} {2} {3} {4} {5} ${OUTPUT}/FNF_${YEAR}_warp.vrt ${OUTPUT}/FNF_MODIS_{1}_${YEAR}_50m.tif"
+    fi
 
 }
 
@@ -86,11 +91,17 @@ stage_years {2007..2010}
 ## Enable GRASS Session
 
 # Enter GRASS location with MODIS sinusoidal projection
-for rast in ${OUTPUT}/*.tif; do r.external $rast out=${rast/.tif/}; done
+for rast in ${OUTPUT}/*.tif; do 
+    outname=$(basename ${rast/.tif/})
+    if [ -n $(g.mlist rast pat=$outname) ]; then
+        echo "Skipping $outname"
+    else
+        r.external $rast out=$outname; 
+    fi
+done
 
 fnf2modis() { 
     input=$1
-    output=$2
     g.region rast=${input}
 # Reclass FNF to binary map
     r.reclass input=${input} output=${input}_rc << EOF
@@ -100,9 +111,9 @@ fnf2modis() {
 EOF
     r.mapcalc ${input}_tmp="if(${input}_rc == 1, float(1), float(0))"
     g.region nsres=463.31271653 ewres=463.31271653
-    r.resamp.stats --o input=${input}_tmp output=${output} method=average
+    r.resamp.stats --o input=${input}_tmp output=${input} method=average
     g.remove rast=${input}_rc,${input}_tmp
-    r.out.gdal create=COMPRESS=LZW input=${input} output=/data/scratch/FNF_MODIS/output/${input}.tif
+    r.out.gdal create=COMPRESS=LZW input=${input} output=${OUTPUT}/${input/50m/500m}.tif
 }
 
 for rast in $(g.mlist rast pattern=FNF_MODIS_*_50m); do
