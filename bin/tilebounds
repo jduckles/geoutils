@@ -1,0 +1,23 @@
+#!/bin/sh
+# Input = Directory of MODIS HDFs
+MODIS_TILES=$1
+# Find extent of raster tile:
+# Build a file containing MODIS tile extents
+
+rasterextent() {
+    # Parse out gdalinfo's output to ulx uly llx and lly
+    RASTER=$1
+    gdalinfo ${RASTER} |grep 'Upper Left\|Lower Right' | sed 's/\(^Upper Left  \)(\(.*\),\(.*\))\( (.*)\)/ulx=\2;uly=\3/g;s/\(Lower Right \)(\(.*\),\(.*\))\( (.*)\)/llx=\2;lly=\3/g;s/ //g'
+}
+
+modistilenumber() {
+    # Find the modis tile pattern from MODIS filenames (assumes leading and trailing . characters)
+    fname=$1
+    echo $fname | grep -o '\.\(h[0-9]\{2\}v[0-9]\{2\}\)\.' | sed 's/\.//g'
+}
+
+TILES=$(for item in $(find ${MODIS_TILES}); do echo HDF4_EOS:EOS_GRID:\"${item}\":MOD_Grid_500m_Surface_Reflectance:sur_refl_b01; done)
+for tile in $TILES; do 
+    eval $(rasterextent $tile); 
+    echo $(modistilenumber $tile) $ulx $uly $llx $lly; 
+done 

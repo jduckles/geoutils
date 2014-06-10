@@ -1,0 +1,9 @@
+#!/bin/sh
+
+INPUT_DIR=$1
+OUTPUT_DIR=$2
+echo "Uncompress all tiles..."
+ls ${INPUT_DIR}/*.tar.gz | parallel -j 10 "tar -xvf {} -C ${OUTPUT_DIR}"
+echo "Uncompress subtiles..."
+find ${OUTPUT_DIR} -name *.gz | parallel -j 10 "tar -xzvf {} -C ${OUTPUT_DIR}"
+echo "Finished staging tiles"
