@@ -19,18 +19,23 @@ MODIS_TILES=/data/ddn/jduckles/modis_tiles
 PALSAR_SOURCE=/data/ddn/PALSAR/PALSAR_2014/Rawdata_new
 OUTPUT=/data/scratch/jduckles/PALSAR
 
-# Find extent of raster tile:
-# Build a file containing MODIS tile extents
-if [ -f ../lib/tilebounds.csv ]; then
-    echo "Found tile bounds"
-else
-    TILES=$(for item in $(find ${MODIS_TILES}); do echo HDF4_EOS:EOS_GRID:\"${item}\":MOD_Grid_500m_Surface_Reflectance:sur_refl_b01; done)
-    echo -n "Computing tile bounds..."
-    for tile in $TILES; do 
-	eval $(rasterextent $tile); 
-	echo $(modistilenumber $tile) $ulx $uly $llx $lly; done > ../lib/tilebounds.csv
-    echo "Done"
-fi
+
+tilebounds() {
+    # Input = Directory of MODIS HDFs
+    MODIS_TILES=$1
+    # Find extent of raster tile:
+    # Build a file containing MODIS tile extents
+    if [ -f ../lib/tilebounds.csv ]; then
+        echo "Found tile bounds"
+    else
+        TILES=$(for item in $(find ${MODIS_TILES}); do echo HDF4_EOS:EOS_GRID:\"${item}\":MOD_Grid_500m_Surface_Reflectance:sur_refl_b01; done)
+        echo -n "Computing tile bounds..."
+        for tile in $TILES; do 
+            eval $(rasterextent $tile); 
+            echo $(modistilenumber $tile) $ulx $uly $llx $lly; done > ../lib/tilebounds.csv
+        echo "Done"
+    fi
+}
 
 
 # Uncompress and stage tiles in a scratch directory
@@ -85,20 +90,20 @@ stage_years() {
     done
 }
 
-stage_years {2007..2010}
 
 
-## Enable GRASS Session
-
-# Enter GRASS location with MODIS sinusoidal projection
-for rast in ${OUTPUT}/*.tif; do 
-    outname=$(basename ${rast/.tif/})
-    if [ -n $(g.mlist rast pat=$outname) ]; then
-        echo "Skipping $outname"
-    else
-        r.external $rast out=$outname; 
-    fi
-done
+importtiles() {
+    ## Enable GRASS Session
+    # Enter GRASS location with MODIS sinusoidal projection
+    for rast in ${OUTPUT}/*.tif; do 
+        outname=$(basename ${rast/.tif/})
+        if [ -n $(g.mlist rast pat=$outname) ]; then
+            r.external $rast out=$outname; 
+        else
+            echo "Skipping $outname"
+        fi
+    done
+}
 
 fnf2modis() { 
     input=$1
@@ -116,8 +121,16 @@ EOF
     r.out.gdal create=COMPRESS=LZW input=${input} output=${OUTPUT}/${input/50m/500m}.tif
 }
 
-for rast in $(g.mlist rast pattern=FNF_MODIS_*_50m); do
-    fnf2modis ${rast};
+#tilebounds
+for year in {2009..2010}; do 
+#    stage_years ${year}
+#    mosaic_year ${year}
+	importtiles
+    for rast in $(g.mlist rast pattern=FNF_MODIS_*_${year}_50m); do
+        fnf2modis ${rast};
+    done
 done
+
+
 
 
