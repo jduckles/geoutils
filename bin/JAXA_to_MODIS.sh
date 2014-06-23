@@ -95,7 +95,7 @@ stage_years() {
 importtiles() {
     ## Enable GRASS Session
     # Enter GRASS location with MODIS sinusoidal projection
-    for rast in ${OUTPUT}/*.tif; do 
+    for rast in ${OUTPUT}/*_50m.tif; do 
         outname=$(basename ${rast/.tif/})
         if [ -n $(g.mlist rast pat=$outname) ]; then
             r.external $rast out=$outname; 
