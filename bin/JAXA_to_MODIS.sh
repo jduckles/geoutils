@@ -1,27 +1,109 @@
-### Convert JAXA FNF to MODIS 
+#!/bin/bash
+### Convert JAXA FNF to MODIS 500m grid
+### Copyright 2014 Jonah Duckles (jduckles@ou.edu)
+### 
+### This script is used to process JAXA Forest-non-Forest maps 
+###   at 50m into the MODIS MOD09A1 grid at 500m using GRASS to
+###   resample the fine resolution (FNF) maps and compute a percentage
+###   forest cover at 500m.
+########################################################################
+#set -x
 
-. ../lib/helpers.sh
+# Find directory we're running script from 
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-# Find extent of raster tile:
+. ${DIR}/../lib/helpers.sh
 
-
-# Build a file containing MODIS tile extents
-TILES=$(for item in $(find /data/ddn/jduckles/modis_tiles/); do echo HDF4_EOS:EOS_GRID:\"${item}\":MOD_Grid_500m_Surface_Reflectance:sur_refl_b01; done)
-for tile in $TILES; do eval $(rasterextent $tile); echo $(modistilenumber $tile) $ulx $uly $llx $lly; done > tilebounds_hdf.csv
-
-# Combine all PALSAR data into vrt logical mosaic
-gdalbuildvrt FNF_2010.vrt *_C
-# Warp the vrt
-gdalwarp -t_srs ~/modis_sinusoidal.prj -of VRT FNF_2010.vrt FNF_2010_warp.vrt
-
-# Loop over all MODIS tiles and extract 
+# A set of reference tiles from MOD09A1 to extract tile extents from
+MODIS_TILES=/data/ddn/jduckles/modis_tiles
+PALSAR_SOURCE=/data/ddn/PALSAR/PALSAR_2014/Rawdata_new
+OUTPUT=/data/scratch/jduckles/PALSAR
 
 
+tilebounds() {
+    # Input = Directory of MODIS HDFs
+    MODIS_TILES=$1
+    # Find extent of raster tile:
+    # Build a file containing MODIS tile extents
+    if [ -f ../lib/tilebounds.csv ]; then
+        echo "Found tile bounds"
+    else
+        TILES=$(for item in $(find ${MODIS_TILES}); do echo HDF4_EOS:EOS_GRID:\"${item}\":MOD_Grid_500m_Surface_Reflectance:sur_refl_b01; done)
+        echo -n "Computing tile bounds..."
+        for tile in $TILES; do 
+            eval $(rasterextent $tile); 
+            echo $(modistilenumber $tile) $ulx $uly $llx $lly; done > ../lib/tilebounds.csv
+        echo "Done"
+    fi
+}
 
-cat ~/tilebounds_hdf.csv | parallel --bar -j 15 --env tile_extract --colsep " " "tile_extract {1} {2} {3} {4} {5} ../FNF_2010_warp.vrt FNF_MODIS_{1}_50m.tif"
 
-# Enter GRASS location with MODIS sinusoidal projection
-for i in *.tif; do r.external $i out=${i/.tif/}; done
+# Uncompress and stage tiles in a scratch directory
+stage_PALSAR() {
+    INPUT_DIR=$1
+    OUTPUT_DIR=$2
+    echo "Uncompress all tiles..."
+    ls ${INPUT_DIR}/*.tar.gz | parallel -j 10 "tar -xvf {} -C ${OUTPUT_DIR}"
+    echo "Uncompress subtiles..."
+    find ${OUTPUT_DIR} -name *.gz | parallel -j 10 "tar -xzvf {} -C ${OUTPUT_DIR}"
+    echo "Finished staging tiles"
+}
+
+mosaic_year() {
+    YEAR=$1
+    # Combine all PALSAR data into vrt logical mosaic
+    echo "Building vrt from all PALSAR data"
+    if [ -f ${OUTPUT}/FNF_${YEAR}.vrt ]; then
+        echo "Found ${OUTPUT}/FNF_${YEAR}.vrt, skipping"
+    else
+        gdalbuildvrt ${OUTPUT}/FNF_${YEAR}.vrt ${OUTPUT}/${YEAR}/*_C
+    fi
+    # Warp the vrt
+    if [ -f  ${OUTPUT}/FNF_${YEAR}_warp.vrt ]; then
+        echo "Found  ${OUTPUT}/FNF_${YEAR}_warp.vrt, skipping."
+    else 
+        gdalwarp -t_srs ~/modis_sinusoidal.prj -of VRT ${OUTPUT}/FNF_${YEAR}.vrt ${OUTPUT}/FNF_${YEAR}_warp.vrt
+    fi
+    # Loop over all MODIS tiles and extract from VRT mosiaic
+    numtiles=$(ls ${OUTPUT}/*${YEAR}.tif)
+    if [ $numtiles -gte 280 ]; then
+        echo "We already extracted all the tiles";
+    else    
+    export -f tile_extract
+    cat ${DIR}/../lib/tilebounds.csv | parallel --bar -j 15 --env tile_extract --colsep " " "tile_extract {1} {2} {3} {4} {5} ${OUTPUT}/FNF_${YEAR}_warp.vrt ${OUTPUT}/FNF_MODIS_{1}_${YEAR}_50m.tif"
+    fi
+
+}
+
+stage_years() {
+    YEARS=$1
+    for year in ${YEARS}; do
+        if [ -d ${OUTPUT}/${year} ]; then
+            echo "Found directory..."
+        else
+            mkdir -p ${OUTPUT}/${year}
+            echo "Staging tiles for ${year}"
+            stage_PALSAR ${PALSAR_SOURCE}/${year}/FNF ${OUTPUT}/${year}
+        fi
+        echo "Mosaicing to VRT file"
+        mosaic_year ${year}
+    done
+}
+
+
+
+importtiles() {
+    ## Enable GRASS Session
+    # Enter GRASS location with MODIS sinusoidal projection
+    for rast in ${OUTPUT}/*_50m.tif; do 
+        outname=$(basename ${rast/.tif/})
+        if [ -n $(g.mlist rast pat=$outname) ]; then
+            r.external $rast out=$outname; 
+        else
+            echo "Skipping $outname"
+        fi
+    done
+}
 
 fnf2modis() { 
     input=$1
@@ -43,5 +125,17 @@ EOF
         r.out.gdal create=COMPRESS=LZW input=${output} output=/data/scratch/FNF_MODIS/output/${output}.tif
     fi
 }
+
+#tilebounds
+for year in {2009..2010}; do 
+#    stage_years ${year}
+#    mosaic_year ${year}
+	importtiles
+    for rast in $(g.mlist rast pattern=FNF_MODIS_*_${year}_50m); do
+        fnf2modis ${rast};
+    done
+done
+
+
 
 
