@@ -24,7 +24,7 @@ tilebounds() {
    # Generates tile bounds of MODIS tiles in
     # Input = Directory of MODIS HDFs
     MODIS_TILES=$1
-    BOUNDS_FILE=../lib/tilebounds_new.csv
+    BOUNDS_FILE=../lib/tilebounds.csv
     # Find extent of raster tile:
     # Build a file containing MODIS tile extents
     if [ -f ${BOUNDS_FILE} ]; then
@@ -42,6 +42,7 @@ tilebounds() {
 
 
 tile_extract() {
+  ### Extract tile with given bounds from base (global) VRT file.
   tilenum=$1;
   ulx=$2;
   uly=$3;
@@ -54,11 +55,14 @@ tile_extract() {
   if [ -f ${OUTPUT} ]; then
     echo "Skipping tile, we've already extracted it.";
   else
-    /home/jduckles/src/gdal-1.11.1/apps/gdal_translate ${GDALOPTS} ${INPUT} ${OUTPUT};
+    gdal_translate ${GDALOPTS} ${INPUT} ${OUTPUT};
 fi;
 }
 
 mosaic() {
+  ### This function operates on a directory full of tifs and a known list of
+  ###   MODIS tile bounding coordinates and creates a set of output files which
+  ###   represent the underlying dataset's pixels in a MODIS tile.
   IN=$1 # Input directory;
   OUT=$2 # Output directory;
   TAG=$3 # Prefix to name output [required];
@@ -79,8 +83,9 @@ mosaic() {
   cat ../lib/tilebounds.csv | parallel --bar -j 15 --env tile_extract --colsep " " "tile_extract {1} {2} {3} {4} {5} ${OUT}/${TAG}_warp.vrt ${OUT}/${TAG}_{1}_${RES}.tif"
 }
 
+mosaic /data/scratch/jduckles/PALSAR_Nov2014/IN/2010 /data/scratch/jduckles/PALSAR_Nov2014/OUT LandCover 50m
 
-
+### THIS FUNCTION MUST RUN INSIDE OF A GRASS Session.
 importtiles() {
     ## Enable GRASS Session
     # Enter GRASS location with MODIS sinusoidal projection
@@ -95,7 +100,13 @@ importtiles() {
     done
 }
 
+importtiles /data/scratch/jduckles/PALSAR_Nov2014/OUT
+
+### THIS FUNCTION MUST RUN INSIDE OF A GRASS Session.
 lc2modis() {
+    ### This function uses grass's r.resamp.stats to compute the percentage
+    ###   contribution of a MODIS-sized pixel area (250m,500m,1km) of underlying
+    ###   50m PALSAR pixels.
     IN=$1
     OUT=$2
     if [ -f $OUT ]; then
@@ -131,6 +142,16 @@ EOF
     fi
     echo "Done with $IN"
 }
+
+# Run lc2modis over all imported tiles.
+for i in $(g.mlist rast pat=Land*_50m); do lc2modis $i $i; done
+
+mkdir ${PALSAR_SOURCE}/OUT/{50m,250m,500m,1km}
+mv ${PALSAR_SOURCE}/OUT/*_50m.tif ${PALSAR_SOURCE}/OUT/50m
+mv ${PALSAR_SOURCE}/OUT/*_250m.tif ${PALSAR_SOURCE}/OUT/250m
+mv ${PALSAR_SOURCE}/OUT/*_500m.tif ${PALSAR_SOURCE}/OUT/500m
+mv ${PALSAR_SOURCE}/OUT/*_1km.tif ${PALSAR_SOURCE}/OUT/1km
+
 
 check_output() {
   DIR=$1
